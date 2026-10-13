@@ -5,6 +5,7 @@ description = "Game memory manipulation and trainer framework powered by Pymem"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "customtkinter>=6.0.0",
     "dnfile>=0.18.0",
     "keyboard>=0.13.5",
     "pefile>=2023.2.7",

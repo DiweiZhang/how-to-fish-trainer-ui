@@ -1,25 +1,26 @@
-"""Build single standalone executable using PyInstaller."""
+"""Build single standalone executable using PyInstaller with CustomTkinter GUI support."""
 
+import argparse
 import subprocess
 import sys
 
 
-def build():
+def build(console: bool = False):
     cmd = [
         sys.executable,
         "-m",
         "PyInstaller",
         "--noconfirm",
         "--onefile",
-        "--console",
+        "--console" if console else "--windowed",
         "--name",
         "HowToFishTrainer",
         "--paths",
         "src",
+        "--collect-all",
+        "customtkinter",
         "--optimize",
         "2",
-        "--exclude-module",
-        "tkinter",
         "--exclude-module",
         "unittest",
         "--exclude-module",
@@ -43,11 +44,7 @@ def build():
         "--exclude-module",
         "concurrent",
         "--exclude-module",
-        "xml",
-        "--exclude-module",
         "xmlrpc",
-        "--exclude-module",
-        "html",
         "--exclude-module",
         "http",
         "--exclude-module",
@@ -70,4 +67,12 @@ def build():
 
 
 if __name__ == "__main__":
-    build()
+    parser = argparse.ArgumentParser(description="Build How to Fish Trainer executable")
+    parser.add_argument(
+        "--console",
+        action="store_true",
+        help="Build with visible console window instead of clean windowed GUI mode",
+    )
+    args = parser.parse_args()
+    build(console=args.console)
+

@@ -4,8 +4,9 @@ import atexit
 import logging
 import signal
 import sys
+import threading
 import time
-from typing import List, Optional
+from typing import Callable, List, Optional, Union
 import keyboard
 import pymem
 import pymem.process
@@ -31,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 
 class HowToFishTrainer:
-    """Main trainer orchestrator for How to Fish."""
+    """Main trainer orchestrator for How to Fish with decoupled event hooks."""
 
     def __init__(self, process_name: str = "How to Fish.exe", language: str = "zh"):
         self.process_name = process_name
@@ -47,6 +48,16 @@ class HowToFishTrainer:
         self._feature_hotkey_hooks = []
         self._control_hotkey_hooks = []
 
+        # Decoupled event listeners
+        self._status_callbacks: List[Callable[[str], None]] = []
+        self._attach_callbacks: List[Callable[[bool, int, int], None]] = []
+        self._feature_callbacks: List[Callable[[CheatFeature], None]] = []
+        self._language_callbacks: List[Callable[[str], None]] = []
+        self._exit_callbacks: List[Callable[[], None]] = []
+
+        # Background thread reference
+        self._bg_thread: Optional[threading.Thread] = None
+
         # Register global control hotkeys (F10 exit, F12 toggle language) immediately
         self._setup_control_hotkeys()
 
@@ -57,6 +68,94 @@ class HowToFishTrainer:
             signal.signal(signal.SIGTERM, self._signal_handler)
         except Exception:
             pass
+
+    # ---------------------------------------------------------
+    # Event Callback Management
+    # ---------------------------------------------------------
+
+    def add_exit_callback(self, cb: Callable[[], None]) -> None:
+        """Subscribes a listener to stop/exit events."""
+        if cb not in self._exit_callbacks:
+            self._exit_callbacks.append(cb)
+
+    def remove_exit_callback(self, cb: Callable[[], None]) -> None:
+        """Unsubscribes an exit listener."""
+        if cb in self._exit_callbacks:
+            self._exit_callbacks.remove(cb)
+
+    def add_status_callback(self, cb: Callable[[str], None]) -> None:
+        """Subscribes a listener to status message changes."""
+        if cb not in self._status_callbacks:
+            self._status_callbacks.append(cb)
+
+    def remove_status_callback(self, cb: Callable[[str], None]) -> None:
+        """Unsubscribes a status listener."""
+        if cb in self._status_callbacks:
+            self._status_callbacks.remove(cb)
+
+    def add_attach_callback(self, cb: Callable[[bool, int, int], None]) -> None:
+        """Subscribes a listener to process attachment state (is_attached, pid, mono_domain)."""
+        if cb not in self._attach_callbacks:
+            self._attach_callbacks.append(cb)
+
+    def remove_attach_callback(self, cb: Callable[[bool, int, int], None]) -> None:
+        """Unsubscribes an attach listener."""
+        if cb in self._attach_callbacks:
+            self._attach_callbacks.remove(cb)
+
+    def add_feature_callback(self, cb: Callable[[CheatFeature], None]) -> None:
+        """Subscribes a listener to cheat feature toggles/updates."""
+        if cb not in self._feature_callbacks:
+            self._feature_callbacks.append(cb)
+
+    def remove_feature_callback(self, cb: Callable[[CheatFeature], None]) -> None:
+        """Unsubscribes a feature listener."""
+        if cb in self._feature_callbacks:
+            self._feature_callbacks.remove(cb)
+
+    def add_language_callback(self, cb: Callable[[str], None]) -> None:
+        """Subscribes a listener to interface language switches."""
+        if cb not in self._language_callbacks:
+            self._language_callbacks.append(cb)
+
+    def remove_language_callback(self, cb: Callable[[str], None]) -> None:
+        """Unsubscribes a language listener."""
+        if cb in self._language_callbacks:
+            self._language_callbacks.remove(cb)
+
+    def set_status(self, msg: str) -> None:
+        """Sets status message and notifies all registered listeners."""
+        self.status_message = msg
+        for cb in list(self._status_callbacks):
+            try:
+                cb(msg)
+            except Exception as e:
+                logger.debug(f"Error in status callback: {e}")
+
+    def _notify_attach(self, is_attached: bool, pid: int, mono_domain: int) -> None:
+        for cb in list(self._attach_callbacks):
+            try:
+                cb(is_attached, pid, mono_domain)
+            except Exception as e:
+                logger.debug(f"Error in attach callback: {e}")
+
+    def _notify_feature_change(self, feature: CheatFeature) -> None:
+        for cb in list(self._feature_callbacks):
+            try:
+                cb(feature)
+            except Exception as e:
+                logger.debug(f"Error in feature callback: {e}")
+
+    def _notify_language_change(self, lang: str) -> None:
+        for cb in list(self._language_callbacks):
+            try:
+                cb(lang)
+            except Exception as e:
+                logger.debug(f"Error in language callback: {e}")
+
+    # ---------------------------------------------------------
+    # Control Hotkeys & Language Management
+    # ---------------------------------------------------------
 
     def _setup_control_hotkeys(self) -> None:
         """Registers persistent control hotkeys (F10, F12) that work at any time."""
@@ -80,35 +179,50 @@ class HowToFishTrainer:
                 keyboard.remove_hotkey(hook)
             except Exception:
                 pass
-        self._control_hotkey_hooks.clear()
+            self._control_hotkey_hooks.clear()
 
     def toggle_language(self) -> None:
         """Toggles interface language between Chinese ('zh') and English ('en')."""
-        self.language = "en" if self.language == "zh" else "zh"
-        self.status_message = tr("lang_switched", self.language)
+        new_lang = "en" if self.language == "zh" else "zh"
+        self.set_language(new_lang)
+
+    def set_language(self, lang: str) -> None:
+        """Sets interface language ('zh' or 'en') and notifies listeners."""
+        self.language = lang
+        self.set_status(tr("lang_switched", self.language))
+        self._notify_language_change(self.language)
 
     def _signal_handler(self, signum, frame):
         """Catches exit signals and triggers clean shutdown."""
         self.stop()
 
+    # ---------------------------------------------------------
+    # Process Attachment & Feature Setup
+    # ---------------------------------------------------------
+
     def attach(self) -> bool:
         """Attempts to find and attach to the game process and Mono runtime."""
         try:
             self.pm = pymem.Pymem(self.process_name)
-            self.status_message = tr("found_process", self.language, process_name=self.process_name)
+            self.set_status(tr("found_process", self.language, process_name=self.process_name))
             self.patcher = MethodPatcher(self.pm)
             self.mono = MonoBridge(self.pm)
             self._setup_features()
             self._setup_feature_hotkeys()
-            self.status_message = tr("attached_ready", self.language)
+            self.set_status(tr("attached_ready", self.language))
+            pid = self.pm.process_id if self.pm else 0
+            domain = self.mono.root_domain if (self.mono and self.mono.root_domain) else 0
+            self._notify_attach(True, pid, domain)
             return True
         except pymem.exception.ProcessNotFound:
             self.pm = None
-            self.status_message = tr("waiting_process", self.language, process_name=self.process_name)
+            self.set_status(tr("waiting_process", self.language, process_name=self.process_name))
+            self._notify_attach(False, 0, 0)
             return False
         except Exception as e:
-            self.status_message = f"Attachment error: {e}"
+            self.set_status(f"Attachment error: {e}")
             self._cleanup_game_resources()
+            self._notify_attach(False, 0, 0)
             return False
 
     def _setup_features(self) -> None:
@@ -128,6 +242,8 @@ class HowToFishTrainer:
         money_cheat.prepare()
 
         self.features = [health_cheat, hunger_cheat, jump_cheat, ammo_cheat, damage_cheat, money_cheat]
+        for f in self.features:
+            self._notify_feature_change(f)
 
     def _setup_feature_hotkeys(self) -> None:
         """Registers feature hotkeys (F1..F6)."""
@@ -150,33 +266,132 @@ class HowToFishTrainer:
                 pass
         self._feature_hotkey_hooks.clear()
 
+    # ---------------------------------------------------------
+    # Programmatic & Hotkey Feature Control
+    # ---------------------------------------------------------
+
+    def get_feature(self, feature_or_hotkey: Union[CheatFeature, str]) -> Optional[CheatFeature]:
+        """Finds feature by instance or hotkey string (e.g. 'F1')."""
+        if isinstance(feature_or_hotkey, CheatFeature):
+            return feature_or_hotkey
+        for f in self.features:
+            if f.hotkey.upper() == str(feature_or_hotkey).upper():
+                return f
+        return None
+
     def _on_hotkey_pressed(self, feature: CheatFeature) -> None:
         """Handles hotkey trigger and toggles feature."""
         if not self.pm or not self.mono:
             return
         feature.toggle()
+        self._notify_feature_change(feature)
         fname = feature.get_name(self.language) if hasattr(feature, "get_name") else feature.name
         if isinstance(feature, DamageMultiplierCheat):
             if self.language == "zh":
                 mode_name = feature.MODES_ZH[feature.current_mode_index]
-                self.status_message = f"{fname} 已设置为 [{mode_name}]"
+                self.set_status(f"{fname} 已设置为 [{mode_name}]")
             else:
                 mode_name = feature.MODES[feature.current_mode_index]
-                self.status_message = f"{fname} set to [{mode_name}]"
+                self.set_status(f"{fname} set to [{mode_name}]")
         elif isinstance(feature, AddMoneyCheat):
             if self.language == "zh":
-                self.status_message = f"成功增加 +${feature.add_amount:,} 金币！(累计增加: +${feature.total_added:,})"
+                self.set_status(f"成功增加 +${feature.add_amount:,} 金币！(累计增加: +${feature.total_added:,})")
             else:
-                self.status_message = f"+${feature.add_amount:,} money added! (Total added: +${feature.total_added:,})"
+                self.set_status(f"+${feature.add_amount:,} money added! (Total added: +${feature.total_added:,})")
         elif hasattr(feature, "last_action_message") and feature.last_action_message:
-            self.status_message = feature.last_action_message
+            self.set_status(feature.last_action_message)
         else:
             if self.language == "zh":
                 state = "已开启" if feature.is_enabled else "已关闭"
-                self.status_message = f"{fname} 当前状态: [{state}]"
+                self.set_status(f"{fname} 当前状态: [{state}]")
             else:
                 state = "ENABLED" if feature.is_enabled else "DISABLED"
-                self.status_message = f"{fname} is now [{state}]"
+                self.set_status(f"{fname} is now [{state}]")
+
+    def toggle_feature_by_hotkey(self, hotkey: str) -> Optional[CheatFeature]:
+        """Toggles a feature programmatically by hotkey identifier."""
+        feature = self.get_feature(hotkey)
+        if feature:
+            self._on_hotkey_pressed(feature)
+        return feature
+
+    def set_feature_enabled(self, feature_or_hotkey: Union[CheatFeature, str], enabled: bool) -> bool:
+        """Explicitly sets a feature's enabled state (e.g. from UI Switch)."""
+        feature = self.get_feature(feature_or_hotkey)
+        if not feature:
+            return False
+
+        if not self.pm or not self.mono:
+            self.set_status(tr("waiting_process", self.language, process_name=self.process_name))
+            return False
+
+        if feature.is_enabled != enabled:
+            if enabled:
+                feature.enable()
+            else:
+                feature.disable()
+            self._notify_feature_change(feature)
+            fname = feature.get_name(self.language) if hasattr(feature, "get_name") else feature.name
+            state = ("已开启" if enabled else "已关闭") if self.language == "zh" else ("ENABLED" if enabled else "DISABLED")
+            self.set_status(f"{fname} 当前状态: [{state}]" if self.language == "zh" else f"{fname} is now [{state}]")
+        return True
+
+    def cycle_damage_multiplier(self) -> Optional[str]:
+        """Cycles damage multiplier to the next mode."""
+        feature = self.get_feature("F5")
+        if isinstance(feature, DamageMultiplierCheat) and self.pm and self.mono:
+            feature.toggle()
+            self._notify_feature_change(feature)
+            fname = feature.get_name(self.language) if hasattr(feature, "get_name") else feature.name
+            mode_name = (
+                feature.MODES_ZH[feature.current_mode_index]
+                if self.language == "zh"
+                else feature.MODES[feature.current_mode_index]
+            )
+            self.set_status(f"{fname} 已设置为 [{mode_name}]" if self.language == "zh" else f"{fname} set to [{mode_name}]")
+            return mode_name
+        return None
+
+    def set_damage_multiplier_mode(self, mode_index: int) -> Optional[str]:
+        """Sets damage multiplier directly to a specific mode index (0=1x, 1=2x, 2=5x, 3=10x, 4=Kill)."""
+        feature = self.get_feature("F5")
+        if isinstance(feature, DamageMultiplierCheat):
+            if not self.pm or not self.mono:
+                self.set_status(tr("waiting_process", self.language, process_name=self.process_name))
+                return None
+            feature.apply_mode(mode_index)
+            self._notify_feature_change(feature)
+            fname = feature.get_name(self.language) if hasattr(feature, "get_name") else feature.name
+            mode_name = (
+                feature.MODES_ZH[feature.current_mode_index]
+                if self.language == "zh"
+                else feature.MODES[feature.current_mode_index]
+            )
+            self.set_status(f"{fname} 已设置为 [{mode_name}]" if self.language == "zh" else f"{fname} set to [{mode_name}]")
+            return mode_name
+        return None
+
+    def trigger_add_money(self, amount: Optional[int] = None) -> bool:
+        """Triggers the add money action."""
+        feature = self.get_feature("F6")
+        if isinstance(feature, AddMoneyCheat):
+            if not self.pm or not self.mono:
+                self.set_status(tr("waiting_process", self.language, process_name=self.process_name))
+                return False
+            if amount is not None:
+                feature.add_amount = amount
+            feature.toggle()
+            self._notify_feature_change(feature)
+            if self.language == "zh":
+                self.set_status(f"成功增加 +${feature.add_amount:,} 金币！(累计增加: +${feature.total_added:,})")
+            else:
+                self.set_status(f"+${feature.add_amount:,} money added! (Total added: +${feature.total_added:,})")
+            return True
+        return False
+
+    # ---------------------------------------------------------
+    # Resource Teardown & Lifecycle
+    # ---------------------------------------------------------
 
     def _cleanup_game_resources(self) -> None:
         """Restores memory patches and frees game handles without unhooking global hotkeys."""
@@ -210,6 +425,9 @@ class HowToFishTrainer:
             self.pm = None
 
         self.features = get_default_features()
+        for f in self.features:
+            self._notify_feature_change(f)
+        self._notify_attach(False, 0, 0)
 
     def _cleanup(self) -> None:
         """Restores all memory patches, frees handles, and unhooks all hotkeys."""
@@ -217,9 +435,66 @@ class HowToFishTrainer:
         self._remove_control_hotkeys()
 
     def stop(self) -> None:
-        """Stops the trainer loop."""
+        """Stops the trainer loop and notifies exit callbacks."""
         self.is_running = False
-        self.status_message = tr("shutting_down", self.language)
+        self.set_status(tr("shutting_down", self.language))
+        for cb in list(self._exit_callbacks):
+            try:
+                cb()
+            except Exception as e:
+                logger.debug(f"Error in exit callback: {e}")
+
+    # ---------------------------------------------------------
+    # Polling Step & Multi-Thread Execution
+    # ---------------------------------------------------------
+
+    def poll_step(self) -> None:
+        """Single tick of process connection checking and feature memory updates."""
+        if self.pm:
+            try:
+                _ = self.pm.read_int(self.mono.module_base)
+            except Exception:
+                self.set_status(tr("game_closed", self.language))
+                self._cleanup_game_resources()
+
+        if not self.pm:
+            self.attach()
+
+        if self.pm and self.features:
+            for f in self.features:
+                if f.is_enabled:
+                    try:
+                        f.update()
+                    except Exception:
+                        pass
+
+    def start_background(self, poll_interval: float = 0.25) -> threading.Thread:
+        """Starts the monitoring loop in a background daemon thread."""
+        if self.is_running and self._bg_thread and self._bg_thread.is_alive():
+            return self._bg_thread
+
+        self.is_running = True
+        self._bg_thread = threading.Thread(
+            target=self._background_loop,
+            args=(poll_interval,),
+            daemon=True,
+            name="TrainerWorkerThread",
+        )
+        self._bg_thread.start()
+        return self._bg_thread
+
+    def _background_loop(self, poll_interval: float) -> None:
+        try:
+            while self.is_running:
+                self.poll_step()
+                time.sleep(poll_interval)
+        finally:
+            self._cleanup()
+
+    def join(self, timeout: Optional[float] = None) -> None:
+        """Waits for background thread to exit."""
+        if self._bg_thread:
+            self._bg_thread.join(timeout=timeout)
 
     def run(self) -> None:
         """Runs the live terminal trainer loop with guaranteed cleanup."""
@@ -229,23 +504,7 @@ class HowToFishTrainer:
         try:
             with Live(console=self.console, refresh_per_second=4, screen=False) as live:
                 while self.is_running:
-                    if self.pm:
-                        try:
-                            _ = self.pm.read_int(self.mono.module_base)
-                        except Exception:
-                            self.status_message = tr("game_closed", self.language)
-                            self._cleanup_game_resources()
-
-                    if not self.pm:
-                        self.attach()
-
-                    if self.pm and self.features:
-                        for f in self.features:
-                            if f.is_enabled:
-                                try:
-                                    f.update()
-                                except Exception:
-                                    pass
+                    self.poll_step()
 
                     is_attached = self.pm is not None and self.mono is not None
                     pid = self.pm.process_id if self.pm else 0
@@ -266,3 +525,4 @@ class HowToFishTrainer:
             self._cleanup()
             exit_text = tr("stopped_clean", self.language)
             self.console.print(f"\n[bold green]{exit_text}[/bold green]")
+
