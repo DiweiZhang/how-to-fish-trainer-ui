@@ -1,80 +1,159 @@
-# How to Fish (渔力全开) - Memory Trainer
+# How to Fish (渔力全开) - Modern Memory Trainer
 
 [English](README.md) | [简体中文](README_zh.md)
 
-An external Python-based trainer and cheat engine for the Unity Mono game **[How to Fish (渔力全开)](https://store.steampowered.com/)**.
+A modern, high-performance external memory trainer for the Unity Mono action-survival game **[How to Fish (渔力全开)](https://store.steampowered.com/)**.
 
-Powered by `pymem`, JIT function hooking via Mono runtime interop, and an interactive `rich` TUI dashboard.
-
----
-
-## Features
-
-| Hotkey | Feature | Description |
-| :--- | :--- | :--- |
-| **F1** | **Lock Health** | Blocks all incoming damage (NPC hits, punches, hazards, fire, poison, starvation) & dissipates elemental gauges. **Normal jump physics preserved.** |
-| **F2** | **Lock Hunger** | Prevents fullness meter from dropping over time or during actions. |
-| **F3** | **Infinite Air Jump** | Pure movement patch: allows infinite mid-air jumps / air flight (**InGodMode is NOT used; health unaffected**). |
-| **F4** | **Unlimited Ammo** | Infinite ammunition for all firearms without magazine depletion or forced reloads. |
-| **F5** | **Damage Multiplier** | Cycles damage multiplier for firearms, melee weapons, and fists: **`1x` $\rightarrow$ `2x` $\rightarrow$ `5x` $\rightarrow$ `10x` $\rightarrow$ `One-Shot Kill (99999)`**. |
-| **F6** | **Add Money (+1w)** | Adds **+$10,000 (1w)** money with sound effect, UI animation, and multiplayer synchronization on keypress. |
-| **F12** | **Switch Language** | Toggles trainer interface language between **Chinese (中文)** and **English (EN)**. |
-| **F10** | **Safe Exit** | Restores all modified code/memory and exits the trainer safely. |
+Powered by `pymem`, dynamic Mono runtime C API reflection, and JIT-level opcode patching. Features a **sleek CustomTkinter dark-mode Graphical User Interface (GUI)** alongside a **Rich interactive Terminal Dashboard (CLI)**, with bidirectional hotkey state synchronization, dynamic bilingual localization, and standalone single-file `.exe` packaging.
 
 ---
 
-## Architecture & How It Works
+## 🌟 Key Features & Highlights
 
-1. **Mono Runtime Interop (`howtofish_cheat.mono.bridge`)**:
-   - Resolves `mono-2.0-bdwgc.dll` exports inside `How to Fish.exe`.
-   - Attaches remote threads to the Mono root domain with TLS setup.
-   - Dynamically locates loaded assemblies (`Assembly-CSharp`), classes, methods, and static vtables.
-2. **JIT Compilation & Memory Scaling (`howtofish_cheat.mono.patcher`)**:
-   - **Lock Health (`F1`)**: JIT-patches `PlayerVitals.TakeDamage`, `PlayerVitals.LocalHit`, `PlayerVitals.DamageFromFullness`, `PlayerVitals.ApplyNewFire`, and `PlayerVitals.ApplyNewPoison`.
-   - **Lock Hunger (`F2`)**: JIT-patches `PlayerVitals.LowerFullness` and `PlayerVitals.LowerFullnessTick`.
-   - **Infinite Air Jump (`F3`)**: Installs a direct call trampoline on `PlayerMovement.JumpInput` pointing straight to `PlayerMovement.Jump`, enabling unlimited air jumps without touching health or God Mode.
-   - **Unlimited Ammo (`F4`)**: JIT-patches `Weapon.set_Ammo` with `RET` (`0xC3`) and actively locks magazine capacity to `999` while resetting reload flags.
-   - **Damage Multiplier (`F5`)**: Pure real-time in-memory scaling across `PlayerPunching._damage`, `Melee._sharpnessUpgrades` array, `Attachments._bulletUpgrades` array, and `WeaponInfo.ProjectileDamage` (1x, 2x, 5x, 10x, One-Shot Kill).
-   - **Add Money (`F6`)**: Directly updates authoritative static `<Money>k__BackingField` and FishNet `SyncVar<int> _money`, invokes `PlayerUI.SetMoney` for floating `+$10000` text + HUD animated roll, and calls `MoneyManager.MoneySound` for audio feedback.
-   - Disabling any cheat or exiting cleanly restores original machine code bytes and base values.
-3. **Interactive Console UI (`howtofish_cheat.ui.console`)**:
-   - Live status display with connection status, active PID, Mono domain pointer, and real-time cheat states.
+- 🎨 **Modern Dark Card-Style GUI**: Crafted with CustomTkinter, featuring pill-shaped animated toggle switches (`CTkSwitch`), multi-mode segmented buttons (`CTkSegmentedButton`), and pulsing connection indicators.
+- ⚡ **Bidirectional Hotkey Synchronization**: Pressing hotkeys (`F1~F6`) in-game smoothly animates and flips the switches on the GUI in real time; toggling UI switches applies memory patches instantly.
+- 🛡️ **Safety Guard & Auto-Revert**: Actions when the game is not running are intercepted with friendly prompts and automatic switch bounce-back; closing or crashing the game automatically resets all UI switches to OFF.
+- 🔄 **Dual-Mode Execution**: Launches as a clean, windowed desktop app with zero background black cmd consoles by default; supports `--console` to fallback to the classic Rich terminal dashboard.
+- 🌍 **Instant Bilingual Localization**: Seamlessly switch between **Chinese (中文)** and **English (EN)** at any time via `F12` or the header toggle button.
+- 📦 **Compact Standalone Packaging**: Optimized PyInstaller bundling packages Python 3.14 + all themes into a single **~13.0 MB** executable without requiring Python to be installed.
 
 ---
 
-## Usage
+## 🎮 Cheat Features & Hotkeys
 
-### 1. Launch the Trainer
-You can launch the trainer either **before** or **after** starting the game:
+| Hotkey | Feature | UI Control | Description |
+| :---: | :---: | :---: | :--- |
+| **F1** | **Lock Health / God Mode** | `CTkSwitch` | Intercepts damage functions (NPC hits, punches, hazards, fire, poison, starvation) and clears elemental gauges. **Normal jump physics and knockback are preserved.** |
+| **F2** | **Lock Hunger** | `CTkSwitch` | Freezes fullness meter, preventing hunger depletion over time or during intensive actions. |
+| **F3** | **Infinite Air Jump** | `CTkSwitch` | Pure movement JIT trampoline patch: bypasses ground detection and enables unlimited mid-air multi-jumps (**health logic unaffected; InGodMode is NOT used**). |
+| **F4** | **Unlimited Ammo** | `CTkSwitch` | Hooks weapon ammo decrement, locks magazine capacity, and eliminates forced reload interruptions. |
+| **F5** | **Damage Multiplier** | `CTkSegmentedButton` | Cycles damage multiplier for firearms, melee weapons, and fists: **`1x (Normal)` $\rightarrow$ `2x` $\rightarrow$ `5x` $\rightarrow$ `10x` $\rightarrow$ `One-Shot Kill (99999)`**. |
+| **F6** | **Add Money (+1w)** | Amount Entry + Button | Adds **+$10,000 (1w)** money with sound FX, floating UI animation, and multiplayer synchronization on keypress or click. |
+| **F12** | **Switch Language** | Segment Button / Hotkey | Toggles trainer interface language between **Chinese (中文)** and **English (EN)**. |
+| **F10** | **Safe Exit** | Window Close / Hotkey | Restores all original machine code bytes and memory baselines, cleanly shutting down the trainer. |
 
-```powershell
-# Using the quick-launch script with uv
-uv run python run_trainer.py
+---
 
-# Or as a module with uv
-uv run python -m howtofish_cheat
+## 🔬 Architecture & How It Works
 
-# Build single standalone executable (dist/HowToFishTrainer.exe)
-uv run python build.py
+Rather than relying on brittle pattern scans or memory searches, the trainer directly interfaces with the game's internal **`mono-2.0-bdwgc.dll` (Mono Virtual Machine)**:
 
-# Run unit tests with uv
-uv run pytest -v
+```mermaid
+flowchart TD
+    subgraph UI_Engine["UI & Dispatcher Layer"]
+        GUI["CustomTkinter GUI Window"]
+        Console["Rich Console Dashboard (Optional)"]
+        EventBus["Decoupled Event Bus (Status / Attach / Feature / Exit)"]
+        GUI <--> EventBus
+        Console <--> EventBus
+    end
+
+    subgraph Core["Core Engine & Mono Hooking"]
+        TrainerLoop["HowToFishTrainer (Background Daemon Thread)"]
+        MonoBridge["MonoBridge (Exported C API Dynamic Discovery)"]
+        MethodPatcher["MethodPatcher (VirtualProtectEx JIT Opcode Patching)"]
+        EventBus <--> TrainerLoop
+        TrainerLoop --> MonoBridge
+        TrainerLoop --> MethodPatcher
+    end
+
+    subgraph Game["How to Fish.exe (Target Unity Mono Process)"]
+        TargetVM["Mono Root Domain"]
+        JITHook["JIT Machine Code: TakeDamage (ret 0xC3) / JumpInput (Trampoline)"]
+        HeapMemory["GC Managed Heap: LocalPlayer / PlayerVitals / MoneyManager"]
+        MonoBridge --> TargetVM
+        MethodPatcher --> JITHook
+        TrainerLoop --> HeapMemory
+    end
 ```
 
-### 2. In-Game Controls
-- Press **F1** to toggle **Lock Health**.
-- Press **F2** to toggle **Lock Hunger**.
-- Press **F3** to toggle **Infinite Air Jump**.
-- Press **F4** to toggle **Unlimited Ammo**.
-- Press **F5** to cycle **Damage Multiplier** (`1x` $\rightarrow$ `2x` $\rightarrow$ `5x` $\rightarrow$ `10x` $\rightarrow$ `One-Shot`).
-- Press **F6** to **Add Money (+1w / +$10,000)** on press.
-- Press **F12** to **Switch Language (中文 / EN)** at any time.
-- Press **F10** or **Ctrl+C** to cleanly exit the trainer.
+1. **JIT Function Hooking (Logic Interception)**:
+   - Invokes `mono_compile_method` to force early compilation of target C# methods into native x86_64 machine code.
+   - Adjusts memory page protection using Windows `VirtualProtectEx`.
+   - **God Mode**: Writes `0xC3` (`ret`) into the first byte of `TakeDamage`, neutralizing damage before execution begins.
+   - **Infinite Jump**: Patches a direct assembly trampoline into `JumpInput`, calling native `Jump` directly without ground checks.
+2. **Managed Heap Object Dynamic Traversal (Value Scaling)**:
+   - Resolves the static `Player.LocalPlayer` pointer to locate the active player instance on the Mono GC heap.
+   - **Damage Multiplier**: Caches unmodified base damage and scales in-memory values across weapons, melee upgrades, and bullet mods.
+   - **Add Money**: Locates `MoneyManager.Instance`, increments the authoritative money field, and triggers native sync animations.
+3. **Safe Teardown & Clean Restoration**:
+   - Every patch records original unmodified bytes (`original_bytes`), restoring game memory completely upon disabling features or exiting.
 
 ---
 
-## Technical Documentation
+## 🚀 Getting Started
 
-For an in-depth breakdown of the reverse engineering, FishNet network architecture, Mono runtime TLS internals, JIT trampolines, and gotchas, see:
+### 1. Launch the Trainer
 
-📖 **[Technical Deep Dive & Architecture Documentation](docs/TECHNICAL_DEEP_DIVE.md)**
+This project uses **`uv`** for dependency synchronization and virtual environment isolation. You can launch the trainer before or after starting the game:
+
+```powershell
+# 1. Launch in Modern GUI mode (default)
+uv run python run_trainer.py
+
+# 2. Launch in Classic Rich Terminal Dashboard mode
+uv run python run_trainer.py --console
+
+# 3. Launch with specific initial language (zh / en)
+uv run python run_trainer.py --lang en
+```
+
+### 2. Build Standalone `.exe` Executable
+
+Package the trainer into a single, dependency-free Windows `.exe`:
+
+```powershell
+# Build native windowed executable (outputs to dist/HowToFishTrainer.exe)
+uv run python build.py
+
+# Build with visible console window
+uv run python build.py --console
+```
+The resulting `dist/HowToFishTrainer.exe` is only **~13.0 MB** and runs immediately without installing Python.
+
+### 3. Run Automated Tests
+
+A comprehensive suite covering cheats, engine decoupling, bidirectional events, and GUI components:
+
+```powershell
+uv run pytest -v
+```
+*(45 / 45 tests passing)*
+
+---
+
+## 📁 Repository Structure
+
+```
+how-to-fish-trainer-ui/
+├── src/
+│   └── howtofish_cheat/
+│       ├── features/            # Cheat feature modules (Health, Hunger, Jump, Ammo, Damage, Money)
+│       ├── mono/                # Mono runtime reflection & JIT method patcher
+│       ├── ui/
+│       │   ├── gui.py           # CustomTkinter modern GUI & feature cards
+│       │   └── console.py       # Rich interactive terminal dashboard
+│       ├── i18n.py              # Bilingual dictionary translations
+│       ├── trainer.py           # Orchestrator engine (thread loop & decoupled event hooks)
+│       └── __main__.py          # Entrypoint with CLI/GUI dual-mode dispatcher
+├── tests/                       # Unit test suite (45 test cases)
+├── docs/                        # Technical reverse engineering deep dive
+├── build.py                     # Optimized PyInstaller build script
+├── HowToFishTrainer.spec        # PyInstaller specification file
+├── pyproject.toml               # Project configuration & uv dependencies
+└── run_trainer.py               # Root quick-launch script
+```
+
+---
+
+## 📖 Deep Dive Documentation
+
+For an in-depth breakdown of the Unity Mono reverse engineering, FishNet networking synchronization, Mono TLS internals, and JIT trampoline design, see:
+
+👉 **[Technical Deep Dive & Architecture Documentation](docs/TECHNICAL_DEEP_DIVE.md)**
+
+---
+
+## ⚖️ Disclaimer
+
+This project is for educational, reverse engineering research, and single-player entertainment purposes only. Do not use this tool in competitive public multiplayer matches or to grief other players.
