@@ -137,20 +137,11 @@ how-to-fish-trainer-ui/
 │       ├── trainer.py           # Orchestrator engine (thread loop & decoupled event hooks)
 │       └── __main__.py          # Entrypoint with CLI/GUI dual-mode dispatcher
 ├── tests/                       # Unit test suite (45 test cases)
-├── docs/                        # Technical reverse engineering deep dive
 ├── build.py                     # Optimized PyInstaller build script
 ├── HowToFishTrainer.spec        # PyInstaller specification file
 ├── pyproject.toml               # Project configuration & uv dependencies
 └── run_trainer.py               # Root quick-launch script
 ```
-
----
-
-## 📖 Deep Dive Documentation
-
-For an in-depth breakdown of the Unity Mono reverse engineering, FishNet networking synchronization, Mono TLS internals, and JIT trampoline design, see:
-
-👉 **[Technical Deep Dive & Architecture Documentation](docs/TECHNICAL_DEEP_DIVE.md)**
 
 ---
 

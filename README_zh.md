@@ -137,20 +137,11 @@ how-to-fish-trainer-ui/
 │       ├── trainer.py           # 修改器引擎核心 (事件解耦、线程与进程轮询)
 │       └── __main__.py          # 模块入口与双模启动参数分发
 ├── tests/                       # 单元测试套件 (45 个测试用例)
-├── docs/                        # 深度逆向与技术架构白皮书
 ├── build.py                     # PyInstaller 优化打包脚本
 ├── HowToFishTrainer.spec        # PyInstaller 规约构建文件
 ├── pyproject.toml               # 项目配置与依赖管理 (uv)
 └── run_trainer.py               # 快速启动入口脚本
 ```
-
----
-
-## 📖 扩展技术文档
-
-想了解更多关于游戏内存布局分析、FishNet 联机同步模型、Mono TLS 上下文以及 JIT 蹦床构造细节，请参阅：
-
-👉 **[技术深度剖析与架构文档 (Technical Deep Dive)](docs/TECHNICAL_DEEP_DIVE.md)**
 
 ---
 
