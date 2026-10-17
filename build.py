@@ -13,6 +13,7 @@ def build(console: bool = False):
         "--noconfirm",
         "--onefile",
         "--console" if console else "--windowed",
+        "--uac-admin",
         "--name",
         "HowToFishTrainer",
         "--paths",

@@ -58,6 +58,11 @@ class HowToFishTrainer:
         # Background thread reference
         self._bg_thread: Optional[threading.Thread] = None
 
+        # State de-duplication caches
+        self._last_status_message: Optional[str] = None
+        self._last_attach_state: Optional[tuple] = None
+        self._last_f10_time: float = 0.0
+
         # Register global control hotkeys (F10 exit, F12 toggle language) immediately
         self._setup_control_hotkeys()
 
@@ -123,8 +128,11 @@ class HowToFishTrainer:
         if cb in self._language_callbacks:
             self._language_callbacks.remove(cb)
 
-    def set_status(self, msg: str) -> None:
-        """Sets status message and notifies all registered listeners."""
+    def set_status(self, msg: str, force: bool = False) -> None:
+        """Sets status message and notifies all registered listeners with de-duplication."""
+        if not force and self.status_message == msg and self._last_status_message == msg:
+            return
+        self._last_status_message = msg
         self.status_message = msg
         for cb in list(self._status_callbacks):
             try:
@@ -132,7 +140,12 @@ class HowToFishTrainer:
             except Exception as e:
                 logger.debug(f"Error in status callback: {e}")
 
-    def _notify_attach(self, is_attached: bool, pid: int, mono_domain: int) -> None:
+    def _notify_attach(self, is_attached: bool, pid: int, mono_domain: int, force: bool = False) -> None:
+        """Notifies attach listeners only when attachment state actually changes."""
+        current_state = (is_attached, pid, mono_domain)
+        if not force and self._last_attach_state == current_state:
+            return
+        self._last_attach_state = current_state
         for cb in list(self._attach_callbacks):
             try:
                 cb(is_attached, pid, mono_domain)
@@ -158,19 +171,39 @@ class HowToFishTrainer:
     # ---------------------------------------------------------
 
     def _setup_control_hotkeys(self) -> None:
-        """Registers persistent control hotkeys (F10, F12) that work at any time."""
+        """Registers persistent control hotkeys (F10 with safety debounce, Ctrl+F10, F12) that work at any time."""
         self._remove_control_hotkeys()
         try:
-            exit_hook = keyboard.add_hotkey("F10", self.stop, suppress=False)
+            exit_hook = keyboard.add_hotkey("F10", self._handle_f10_press, suppress=False)
             self._control_hotkey_hooks.append(exit_hook)
         except Exception as e:
             logger.debug(f"Failed to register F10 exit hotkey: {e}")
+
+        try:
+            ctrl_exit_hook = keyboard.add_hotkey("Ctrl+F10", self.stop, suppress=False)
+            self._control_hotkey_hooks.append(ctrl_exit_hook)
+        except Exception as e:
+            logger.debug(f"Failed to register Ctrl+F10 exit hotkey: {e}")
 
         try:
             lang_hook = keyboard.add_hotkey("F12", self.toggle_language, suppress=False)
             self._control_hotkey_hooks.append(lang_hook)
         except Exception as e:
             logger.debug(f"Failed to register F12 language hotkey: {e}")
+
+    def _handle_f10_press(self) -> None:
+        """Handles F10 press with double-tap safety to prevent accidental exits on laptop function keys."""
+        now = time.time()
+        if now - self._last_f10_time < 2.0:
+            self.stop()
+        else:
+            self._last_f10_time = now
+            warn_msg = (
+                "【防误触】2 秒内再次按下 [F10] 确认退出，或按 [Ctrl+F10] 立即退出"
+                if self.language == "zh"
+                else "[Safety] Press [F10] again within 2s to exit, or [Ctrl+F10] to exit now"
+            )
+            self.set_status(warn_msg, force=True)
 
     def _remove_control_hotkeys(self) -> None:
         """Unregisters persistent control hotkeys."""
@@ -448,11 +481,26 @@ class HowToFishTrainer:
     # Polling Step & Multi-Thread Execution
     # ---------------------------------------------------------
 
+    @staticmethod
+    def is_admin() -> bool:
+        """Checks if the current process is running with Administrator privileges on Windows."""
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                return bool(ctypes.windll.shell32.IsUserAnAdmin())
+            except Exception:
+                return False
+        return True
+
     def poll_step(self) -> None:
         """Single tick of process connection checking and feature memory updates."""
         if self.pm:
             try:
-                _ = self.pm.read_int(self.mono.module_base)
+                if self.mono and getattr(self.mono, "module_base", None):
+                    _ = self.pm.read_int(self.mono.module_base)
+                else:
+                    self.set_status(tr("game_closed", self.language))
+                    self._cleanup_game_resources()
             except Exception:
                 self.set_status(tr("game_closed", self.language))
                 self._cleanup_game_resources()
@@ -486,7 +534,10 @@ class HowToFishTrainer:
     def _background_loop(self, poll_interval: float) -> None:
         try:
             while self.is_running:
-                self.poll_step()
+                try:
+                    self.poll_step()
+                except Exception as e:
+                    logger.debug(f"Unhandled error in poll_step: {e}")
                 time.sleep(poll_interval)
         finally:
             self._cleanup()

@@ -398,6 +398,7 @@ class TrainerApp(ctk.CTk):
             self.trainer = trainer
         self.language = self.trainer.language
         self.cards: Dict[str, Union[BooleanFeatureCard, DamageMultiplierCard, AddMoneyCard]] = {}
+        self._ui_is_attached = False
 
         # Window configurations
         self.title(tr("gui_title", self.language))
@@ -482,12 +483,14 @@ class TrainerApp(ctk.CTk):
         self.lang_btn.set("中文" if self.language == "zh" else "English")
         self.lang_btn.pack(side="right")
 
-        # Subtitle
+        # Subtitle & Admin privilege badge
+        is_admin = getattr(self.trainer, "is_admin", lambda: True)()
+        admin_hint = "" if is_admin else ("  |  ⚠️ " + ("未以管理员身份运行" if self.language == "zh" else "Non-Admin Mode"))
         self.sub_label = ctk.CTkLabel(
             self.header_frame,
-            text="Unity Mono JIT Engine  |  FishNet Client/Host Sync  |  External Trainer",
+            text=f"Unity Mono JIT Engine  |  External Trainer{admin_hint}",
             font=ctk.CTkFont(size=11),
-            text_color=("#666666", "#8F96A0"),
+            text_color="#FFA000" if not is_admin else ("#666666", "#8F96A0"),
         )
         self.sub_label.pack(anchor="w", padx=16, pady=(0, 10))
 
@@ -589,22 +592,43 @@ class TrainerApp(ctk.CTk):
     # Trainer Event Callbacks (Dispatched to Tk Main Thread)
     # ---------------------------------------------------------
 
+    def _safe_after(self, func, *args) -> None:
+        """Dispatches callback safely to Tk main thread if the window is alive."""
+        try:
+            if not getattr(self, "_is_closing", False) and self.winfo_exists():
+                self.after(0, func, *args)
+        except Exception:
+            pass
+
     def _bind_trainer_events(self) -> None:
         """Subscribes GUI listeners to engine event notifications."""
-        self.trainer.add_status_callback(lambda msg: self.after(0, self._handle_status_update, msg))
+        self.trainer.add_status_callback(lambda msg: self._safe_after(self._handle_status_update, msg))
         self.trainer.add_attach_callback(
-            lambda att, pid, dom: self.after(0, self._handle_attach_update, att, pid, dom)
+            lambda att, pid, dom: self._safe_after(self._handle_attach_update, att, pid, dom)
         )
-        self.trainer.add_feature_callback(lambda f: self.after(0, self._handle_feature_update, f))
-        self.trainer.add_language_callback(lambda lang: self.after(0, self._handle_language_update, lang))
-        self.trainer.add_exit_callback(lambda: self.after(0, self.on_closing))
+        self.trainer.add_feature_callback(lambda f: self._safe_after(self._handle_feature_update, f))
+        self.trainer.add_language_callback(lambda lang: self._safe_after(self._handle_language_update, lang))
+        self.trainer.add_exit_callback(lambda: self._safe_after(self.on_closing))
 
     def _handle_status_update(self, msg: str) -> None:
         """Updates footer status message."""
-        self.status_msg_lbl.configure(text=f"• {msg}")
+        try:
+            if self.winfo_exists():
+                self.status_msg_lbl.configure(text=f"• {msg}")
+        except Exception:
+            pass
 
     def _handle_attach_update(self, is_attached: bool, pid: int, mono_domain: int) -> None:
         """Updates header connection banner and status indicators."""
+        try:
+            if not self.winfo_exists():
+                return
+        except Exception:
+            return
+
+        was_attached = getattr(self, "_ui_is_attached", False)
+        self._ui_is_attached = is_attached
+
         if is_attached:
             self.status_dot.configure(text_color="#00D26A")
             msg = tr("status_connected", self.language, process_name=self.trainer.process_name, pid=pid)

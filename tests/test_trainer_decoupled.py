@@ -102,6 +102,45 @@ class TestTrainerDecoupled(unittest.TestCase):
         self.assertFalse(trainer.is_running)
         self.assertFalse(bg_thread.is_alive())
 
+    @patch("howtofish_cheat.trainer.keyboard")
+    def test_f10_safety_debounce(self, mock_keyboard):
+        trainer = HowToFishTrainer(language="zh")
+        trainer.stop = MagicMock()
+
+        # First press: should NOT stop, but warn
+        trainer._handle_f10_press()
+        trainer.stop.assert_not_called()
+        self.assertIn("防误触", trainer.status_message)
+
+        # Immediate second press: should stop
+        trainer._handle_f10_press()
+        trainer.stop.assert_called_once()
+
+    @patch("howtofish_cheat.trainer.keyboard")
+    def test_state_deduplication(self, mock_keyboard):
+        trainer = HowToFishTrainer(language="zh")
+        status_calls = []
+        attach_calls = []
+
+        trainer.add_status_callback(lambda msg: status_calls.append(msg))
+        trainer.add_attach_callback(lambda att, pid, dom: attach_calls.append((att, pid, dom)))
+
+        # Calling set_status with same message should only trigger once
+        trainer.set_status("Same Status")
+        trainer.set_status("Same Status")
+        trainer.set_status("Same Status")
+        self.assertEqual(len(status_calls), 1)
+
+        # Calling _notify_attach with same state should only trigger once
+        trainer._notify_attach(False, 0, 0)
+        trainer._notify_attach(False, 0, 0)
+        trainer._notify_attach(False, 0, 0)
+        self.assertEqual(len(attach_calls), 1)
+
+    def test_is_admin_check(self):
+        res = HowToFishTrainer.is_admin()
+        self.assertIsInstance(res, bool)
+
 
 if __name__ == "__main__":
     unittest.main()
